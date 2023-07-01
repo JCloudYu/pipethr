@@ -1,0 +1,24 @@
+{
+	"name": "pipethr",
+	"version": "0.1.0",
+	"description": "A tiny library that provides behaviors that are similar to tee's but with more flexible usages",
+	"main": "./_dist/pipethr.js",
+	"bin": {
+		"pipethr": "./_dist/bin/pipethr.js"
+	},
+	"scripts": {},
+	"keywords": [
+		"tee",
+		"pipe",
+		"pipethru"
+	],
+	"author": "JCloudYu",
+	"license": "ISC",
+	"devDependencies": {
+		"@types/node": "^17.0.33",
+		"typescript": "^4.6.4"
+	},
+	"dependencies": {
+		"clipargs": "^2.1.1"
+	}
+}
