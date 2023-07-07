@@ -147,6 +147,7 @@ if ( SHELL_ARGS.length > 0 ) {
 }
 else {
 	process
+	.stdin
 	.on('data', c=>Runtime.data_pool.push(c))
 	.on('end', ()=>Runtime.run_state=0);
 }

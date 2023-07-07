@@ -1,6 +1,6 @@
 {
 	"name": "pipethr",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "A tiny library that provides behaviors that are similar to tee's but with more flexible usages",
 	"main": "./_dist/pipethr.js",
 	"bin": {
