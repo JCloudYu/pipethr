@@ -146,6 +146,7 @@ if (SHELL_ARGS.length > 0) {
 }
 else {
     process
+        .stdin
         .on('data', function (c) { return Runtime.data_pool.push(c); })
         .on('end', function () { return Runtime.run_state = 0; });
 }
