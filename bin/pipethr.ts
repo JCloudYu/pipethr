@@ -64,6 +64,7 @@ const args:{
 	hourly?:string[];
 	monthly?:string[];
 	yearly?:string[];
+	stderr?:string;
 } = clipargs
 .flag('help', '--help')
 .flag('silent', '-s', '--silent')
@@ -91,20 +92,26 @@ if ( args.help ) {
 const PERIOD_IDS = ['yearly', 'monthly', 'daily', 'hourly', ''] as const;
 const Runtime:{
 	silent: boolean;
-	base_path: string;
 	time_id: string;
 	period: typeof PERIOD_IDS[number];
 	data_pool: Buffer[];
+	base_path: string;
 	log_timeout: NodeJS.Timeout|0|null|false;
-	run_state: null|number; 
+	error_pool: Buffer[];
+	error_path?:string;
+	error_timeout: NodeJS.Timeout|0|null|false;
+	run_state: null|number;
 } = {
 	silent: args.silent||false,
-	base_path: args._[0],
 	time_id: '',
 	period: '',
 	data_pool: [],
+	base_path: args._[0],
 	log_timeout: null,
-	run_state: null
+	error_pool: [],
+	error_path: args.stderr,
+	error_timeout: null,
+	run_state: null,
 };
 
 
@@ -138,9 +145,10 @@ if ( SHELL_ARGS.length > 0 ) {
 	const sub = child.spawn(SHELL_ARGS[0], SHELL_ARGS.slice(1), {
 		env:process.env,
 		cwd: process.cwd(),
-		stdio: ['ignore', 'pipe', process.stderr]
+		stdio: ['ignore', 'pipe', 'pipe']
 	});
 	sub.stdout.on('data', c=>Runtime.data_pool.push(c));
+	sub.stderr.on('data', c=>Runtime.error_pool.push(c));
 	sub.on('close', (code, signal)=>{
 		Runtime.run_state = code !== null ? code : (128 + SIGNAL_MAP[signal!]||127);
 	});
@@ -225,6 +233,88 @@ async function ConsumeLog() {
 	if ( !Runtime.silent ) {
 		process.stdout.write(data);
 	}
+}
+
+
+
+// REGION: [ Partial Copy from ProcessLog() function ]
+Runtime.error_timeout = setTimeout(ProcessError, 0);
+function ProcessError() {
+	Promise.resolve().then(async()=>{
+		while(Runtime.error_pool.length > 0) await ConsumeError();
+	})
+	.then(()=>{
+		if ( Runtime.run_state !== null ) {
+			setTimeout((state)=>process.exit(state), 0, Runtime.run_state);
+			return;
+		}
+		
+		Runtime.error_timeout = setTimeout(ProcessError, 0);
+	})
+	.catch((e)=>{
+		console.error("Cannot write error log due to unexpected error!", e);
+		setTimeout(()=>process.exit(1));
+	});
+}
+// ENDREGION
+
+async function ConsumeError() {
+	if(!Runtime.error_path) {
+		return;
+	}
+
+	// REGION: [ Copy from ConsumeLog() function ]
+	const now = new Date();
+	const time = {
+		year:`${now.getFullYear()}`,
+		month:`${now.getMonth() + 1}`.padStart(2, '0'),
+		day:`${now.getDate()}`.padStart(2, '0'),
+		hour:`${now.getHours()}`.padStart(2, '0')
+	};
+
+	let time_id = '';
+	switch(Runtime.period) {
+		case 'monthly':
+			time_id = `${time.year}${time.month}`;
+			break;
+		
+		case 'yearly':
+			time_id = `${time.year}`;
+			break;
+
+		case 'daily':
+			time_id = `${time.year}${time.month}${time.day}`;
+			break;
+		
+		case 'hourly':
+			time_id = `${time.year}${time.month}${time.day}${time.hour}`;
+			break;
+		
+		default:
+			time_id = '';
+			break;
+	}
+	// ENDREGION
+
+
+	// REGION: [ Partial copy from ConsumeLog() function ]
+	const data = Buffer.concat(Runtime.error_pool.splice(0, 100));
+	const log_path = Runtime.error_path.replace('{}', time_id);
+
+	// Create dir if time_id is different!
+	if ( Runtime.time_id !== time_id ) {
+		await fsp.mkdir(path.dirname(log_path), {recursive:true}).catch((e:Error&{code:string})=>{
+			if ( e.code !== 'EEXIST' ) throw e;
+		});
+		Runtime.time_id = time_id;
+	}
+
+
+	await fsp.appendFile(log_path, data);
+	if ( !Runtime.silent ) {
+		process.stderr.write(data);
+	}
+	// ENDREGION
 }
 function SignalTerminate() {
 	Runtime.run_state = 1;
