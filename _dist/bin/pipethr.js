@@ -97,6 +97,7 @@ var args = clipargs_1.default
     .flag('daily', '-D', '--daily')
     .flag('monthly', '-M', '--monthly')
     .flag('yearly', '-Y', '--yearly')
+    .variable('stderr', '--stderr')
     .parse(EXEC_ARGS);
 if (args._.length <= 0) {
     console.error("Please provides LOG_PATH!");
@@ -109,12 +110,14 @@ if (args.help) {
 var PERIOD_IDS = ['yearly', 'monthly', 'daily', 'hourly', ''];
 var Runtime = {
     silent: args.silent || false,
-    base_path: args._[0],
     time_id: '',
     period: '',
     data_pool: [],
+    base_path: args._[0],
     log_timeout: null,
-    run_state: null
+    error_pool: [],
+    error_path: args.stderr,
+    run_state: null,
 };
 if (args.hourly) {
     Runtime.period = 'hourly';
@@ -137,9 +140,10 @@ if (SHELL_ARGS.length > 0) {
     var sub = child_process_1.default.spawn(SHELL_ARGS[0], SHELL_ARGS.slice(1), {
         env: process.env,
         cwd: process.cwd(),
-        stdio: ['ignore', 'pipe', process.stderr]
+        stdio: ['ignore', 'pipe', 'pipe']
     });
     sub.stdout.on('data', function (c) { return Runtime.data_pool.push(c); });
+    sub.stderr.on('data', function (c) { return Runtime.error_pool.push(c); });
     sub.on('close', function (code, signal) {
         Runtime.run_state = code !== null ? code : (128 + SIGNAL_MAP[signal] || 127);
     });
@@ -162,7 +166,13 @@ function ProcessLog() {
                 case 1:
                     _a.sent();
                     return [3 /*break*/, 0];
-                case 2: return [2 /*return*/];
+                case 2:
+                    if (!(Runtime.error_pool.length > 0)) return [3 /*break*/, 4];
+                    return [4 /*yield*/, ConsumeError()];
+                case 3:
+                    _a.sent();
+                    return [3 /*break*/, 2];
+                case 4: return [2 /*return*/];
             }
         });
     }); })
@@ -225,6 +235,62 @@ function ConsumeLog() {
                     _a.sent();
                     if (!Runtime.silent) {
                         process.stdout.write(data);
+                    }
+                    return [2 /*return*/];
+            }
+        });
+    });
+}
+function ConsumeError() {
+    return __awaiter(this, void 0, void 0, function () {
+        var now, time, time_id, data, log_path;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0:
+                    now = new Date();
+                    time = {
+                        year: "".concat(now.getFullYear()),
+                        month: "".concat(now.getMonth() + 1).padStart(2, '0'),
+                        day: "".concat(now.getDate()).padStart(2, '0'),
+                        hour: "".concat(now.getHours()).padStart(2, '0')
+                    };
+                    time_id = '';
+                    switch (Runtime.period) {
+                        case 'monthly':
+                            time_id = "".concat(time.year).concat(time.month);
+                            break;
+                        case 'yearly':
+                            time_id = "".concat(time.year);
+                            break;
+                        case 'daily':
+                            time_id = "".concat(time.year).concat(time.month).concat(time.day);
+                            break;
+                        case 'hourly':
+                            time_id = "".concat(time.year).concat(time.month).concat(time.day).concat(time.hour);
+                            break;
+                        default:
+                            time_id = '';
+                            break;
+                    }
+                    data = Buffer.concat(Runtime.error_pool.splice(0, 100));
+                    if (!Runtime.error_path) return [3 /*break*/, 4];
+                    log_path = Runtime.error_path.replace('{}', time_id);
+                    if (!(Runtime.time_id !== time_id)) return [3 /*break*/, 2];
+                    return [4 /*yield*/, promises_1.default.mkdir(path_1.default.dirname(log_path), { recursive: true }).catch(function (e) {
+                            if (e.code !== 'EEXIST')
+                                throw e;
+                        })];
+                case 1:
+                    _a.sent();
+                    Runtime.time_id = time_id;
+                    _a.label = 2;
+                case 2: return [4 /*yield*/, promises_1.default.appendFile(log_path, data)];
+                case 3:
+                    _a.sent();
+                    _a.label = 4;
+                case 4:
+                    if (!Runtime.silent) {
+                        process.stderr.write(data);
                     }
                     return [2 /*return*/];
             }
