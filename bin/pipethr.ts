@@ -72,6 +72,7 @@ const args:{
 .flag('daily', '-D', '--daily')
 .flag('monthly', '-M', '--monthly')
 .flag('yearly', '-Y', '--yearly')
+.variable('stderr', '--stderr')
 .parse(EXEC_ARGS);
 
 
@@ -99,7 +100,6 @@ const Runtime:{
 	log_timeout: NodeJS.Timeout|0|null|false;
 	error_pool: Buffer[];
 	error_path?:string;
-	error_timeout: NodeJS.Timeout|0|null|false;
 	run_state: null|number;
 } = {
 	silent: args.silent||false,
@@ -110,7 +110,6 @@ const Runtime:{
 	log_timeout: null,
 	error_pool: [],
 	error_path: args.stderr,
-	error_timeout: null,
 	run_state: null,
 };
 
@@ -167,6 +166,7 @@ Runtime.log_timeout = setTimeout(ProcessLog, 0);
 function ProcessLog() {
 	Promise.resolve().then(async()=>{
 		while(Runtime.data_pool.length > 0) await ConsumeLog();
+		while(Runtime.error_pool.length > 0) await ConsumeError();
 	})
 	.then(()=>{
 		if ( Runtime.run_state !== null ) {
@@ -237,32 +237,7 @@ async function ConsumeLog() {
 
 
 
-// REGION: [ Partial Copy from ProcessLog() function ]
-Runtime.error_timeout = setTimeout(ProcessError, 0);
-function ProcessError() {
-	Promise.resolve().then(async()=>{
-		while(Runtime.error_pool.length > 0) await ConsumeError();
-	})
-	.then(()=>{
-		if ( Runtime.run_state !== null ) {
-			setTimeout((state)=>process.exit(state), 0, Runtime.run_state);
-			return;
-		}
-		
-		Runtime.error_timeout = setTimeout(ProcessError, 0);
-	})
-	.catch((e)=>{
-		console.error("Cannot write error log due to unexpected error!", e);
-		setTimeout(()=>process.exit(1));
-	});
-}
-// ENDREGION
-
 async function ConsumeError() {
-	if(!Runtime.error_path) {
-		return;
-	}
-
 	// REGION: [ Copy from ConsumeLog() function ]
 	const now = new Date();
 	const time = {
@@ -299,18 +274,21 @@ async function ConsumeError() {
 
 	// REGION: [ Partial copy from ConsumeLog() function ]
 	const data = Buffer.concat(Runtime.error_pool.splice(0, 100));
-	const log_path = Runtime.error_path.replace('{}', time_id);
+	if(Runtime.error_path) {
+		const log_path = Runtime.error_path.replace('{}', time_id);
 
-	// Create dir if time_id is different!
-	if ( Runtime.time_id !== time_id ) {
-		await fsp.mkdir(path.dirname(log_path), {recursive:true}).catch((e:Error&{code:string})=>{
-			if ( e.code !== 'EEXIST' ) throw e;
-		});
-		Runtime.time_id = time_id;
+		// Create dir if time_id is different!
+		if ( Runtime.time_id !== time_id ) {
+			await fsp.mkdir(path.dirname(log_path), {recursive:true}).catch((e:Error&{code:string})=>{
+				if ( e.code !== 'EEXIST' ) throw e;
+			});
+			Runtime.time_id = time_id;
+		}
+
+
+		await fsp.appendFile(log_path, data);		
 	}
 
-
-	await fsp.appendFile(log_path, data);
 	if ( !Runtime.silent ) {
 		process.stderr.write(data);
 	}
